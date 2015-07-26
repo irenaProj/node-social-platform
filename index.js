@@ -1,8 +1,63 @@
 var express = require('express');
 var fixtures = require('./fixtures.js');
-var app = express();
+var passport = require('./auth.js');
 var bodyParser = require('body-parser');
+var cookieParser = require('cookie-parser');
+var session  = require('express-session');
+var bodyParser = require('body-parser');
+var config = require('./config');
+
+var app = express();
 var id = 4;
+
+app.use(cookieParser());
+app.use(session({
+  secret: 'keyboard cat',
+  resave: false,
+  saveUninitialized: true
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.post('/api/auth/login', bodyParser.json(), function(req, res, next) {
+  var username, password;
+
+  username = req.body.username;
+  password = req.body.password;
+
+  console.log('In the post for login');
+  console.log('username: ' + username + ', password: ' + password);
+
+  passport.authenticate('local', function(err, user, info) {
+    if (err) { 
+      console.log('error on login: 500');
+      return res.sendStatus(500); 
+    }
+
+    if (!user) { 
+      console.log('error on login: no such user');
+      return res.sendStatus(403);
+    }
+
+    req.logIn(user, function(err) {
+      if (err) { 
+        console.log('error on login: 403 (password did not match?)');
+        return res.sendStatus(500);
+      }
+
+      console.log('login: successful');
+      return res.send({
+        user: req.user
+      });
+    });
+  })(req, res, next);
+});
+
+app.post('/api/auth/logout', function(req, res) {
+  req.logOut();
+
+  return res.sendStatus(200);
+});
 
 app.get('/api/tweets/:tweetId', function(req, res) {
   var tweetId = req.params.tweetId;
@@ -23,7 +78,15 @@ app.get('/api/tweets/:tweetId', function(req, res) {
   }
 });
 
-app.post('/api/tweets', bodyParser.json(), function(req, res) {
+function ensureAuthentication(req, res, next) {
+  if (req.isUnauthenticated()) {
+    return res.sendStatus(403);
+  }
+
+  next();
+}
+
+app.post('/api/tweets', ensureAuthentication, bodyParser.json(), function(req, res) {
   console.log('In the post for /api/tweets');
 
   if (!req.body) {
@@ -32,6 +95,7 @@ app.post('/api/tweets', bodyParser.json(), function(req, res) {
 
   var tweet = req.body.tweet;
 
+  tweet.userId = req.user.id;
   tweet.id = id;
   id++;
   tweet.created = Math.floor(Date.now() / 1000);
@@ -65,12 +129,22 @@ app.post('/api/users', bodyParser.json(), function(req, res) {
 
   fixtures.users.push(user);
 
+  req.logIn(user, function(err) {
+    if (err) { 
+      console.log('error on login: 403 (password did not match?)');
+      return res.sendStatus(500);
+    }
+
+    console.log('new user created successfully');
+  });
+
   return res.sendStatus(200);
 });
 
-app.delete('/api/tweets/:tweetId', function(req, res) {
+app.delete('/api/tweets/:tweetId', ensureAuthentication, function(req, res) {
   var tweetId = req.params.tweetId;
   var index = -1;
+  var user = req.user;
 
   for (var i = 0; i < fixtures.tweets.length; i++ ) {
     if (fixtures.tweets[i].id === tweetId) {
@@ -84,6 +158,10 @@ app.delete('/api/tweets/:tweetId', function(req, res) {
   if (index === -1) {
     return res.sendStatus(404);
   } else {
+    if (user.id !== fixtures.tweets[index].userId) {
+      return res.sendStatus(403);
+    }
+
     fixtures.tweets.splice(index, 1);
     console.log(fixtures.tweets);
 
@@ -143,6 +221,6 @@ app.get('/api/tweets', function(req, res) {
   });
 });
 
-var server = app.listen(3000, '127.0.0.1');
+var server = app.listen(config.get('server:port'), config.get('server:host'));
 
 module.exports = server;
