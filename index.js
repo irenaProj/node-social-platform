@@ -6,6 +6,9 @@ var cookieParser = require('cookie-parser');
 var session  = require('express-session');
 var bodyParser = require('body-parser');
 var config = require('./config');
+var conn = require('./db'), 
+    User = conn.model('User'),
+    Tweet = conn.model('Tweet');
 
 var app = express();
 var id = 4;
@@ -115,19 +118,33 @@ app.post('/api/users', bodyParser.json(), function(req, res) {
     return res.sendStatus(400);
   }
 
-  var user = req.body.user;
-  user.followingIds = [];
+  // var user = req.body.user;
+  // user.followingIds = [];
 
-  console.log(user);
+  // console.log(user);
 
   // Check user does not exist
-  for (var i = 0; i < fixtures.users.length; i++ ) {
-    if (fixtures.users[i].id === user.id) {
-      return res.sendStatus(409);
-    }
-  }
+  // for (var i = 0; i < fixtures.users.length; i++ ) {
+  //   if (fixtures.users[i].id === user.id) {
+  //     return res.sendStatus(409);
+  //   }
+  // }
 
-  fixtures.users.push(user);
+  // fixtures.users.push(user);
+
+  var user = new User(req.body.user);
+
+  user.save(function(err) {
+    if (err) {
+      // An error occurred while attempting to save the user
+      if (err.code === 11000) {
+        console.log('error on new user: 409, user exists');
+        return res.sendStatus(409);
+      }
+      console.log('error on new user: 500');
+      return res.sendStatus(500);
+    }
+  });
 
   req.logIn(user, function(err) {
     if (err) { 
